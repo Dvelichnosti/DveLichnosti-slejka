@@ -1,6 +1,7 @@
 import asyncio
 import time
 from telethon import TelegramClient
+from telethon.errors import UsernameNotOccupiedError, ValueInvalidError
 from telethon.tl.types import (
     UserStatusOnline,
     UserStatusOffline,
@@ -15,8 +16,8 @@ from rich.live import Live
 from rich.align import Align
 
 # Вставь сюда свои данные API:
-api_id = 1234567          # Твой api_id
-api_hash = "your_api_hash_here"  # Твой api_hash
+api_id = 1234567
+api_hash = "your_api_hash_here"
 
 console = Console()
 LOGFILE = "user_status.log"
@@ -31,7 +32,7 @@ ____               _     _      _                     _   _
  ___| | ___ (_) | ____ _                                    
 / __| |/ _ \| | |/ / _` |                                   
 \__ \ |  __/| |   < (_| |                                   
-|___/_|\___|/ |_|\_\__,_|         by @Dve_lichnosti                          
+|___/_|\___|/ |_|\_\__,_|         by @Dve_lichnosti                         
           |__/                                              
 """
 
@@ -53,11 +54,27 @@ def log(message: str):
     with open(LOGFILE, "a", encoding="utf-8") as f:
         f.write(f"{timestamp} {message}\n")
 
-async def track(username):
+async def track(user_input):
     await client.start()
     console.print(panel)
-    console.print(f"Отслеживаем пользователя: [bold green]@{username}[/bold green]\n")
-    log(f"Старт отслеживания @{username}")
+
+    try:
+        if user_input.isdigit():
+            entity = int(user_input)
+        else:
+            entity = await client.get_entity(user_input)
+    except (UsernameNotOccupiedError, ValueInvalidError):
+        console.print(f"[bold red]Пользователь не найден: {user_input}[/bold red]")
+        return
+
+    user = await client.get_entity(entity)
+    if user.username:
+        display_name = f"@{user.username}"
+    else:
+        display_name = f"{user.first_name or ''} {user.last_name or ''}".strip()
+
+    console.print(f"Отслеживаем пользователя: [bold green]{display_name}[/bold green]\n")
+    log(f"Старт отслеживания {display_name}")
 
     was_online = None
     online_since = None
@@ -67,7 +84,7 @@ async def track(username):
         try:
             while True:
                 try:
-                    user = await client.get_entity(username)
+                    user = await client.get_entity(entity)
                     status = user.status
                     now = time.strftime("%H:%M:%S")
 
@@ -82,7 +99,7 @@ async def track(username):
                                 offline_str = ""
                             offline_since = None
                         online_duration = int(time.time() - online_since) if online_since else 0
-                        status_str = f"[{now}] @{username} [bold green]ONLINE[/bold green] | В сети уже {format_duration(online_duration)}.{offline_str}"
+                        status_str = f"[{now}] {display_name} [bold green]ONLINE[/bold green] | В сети уже {format_duration(online_duration)}.{offline_str}"
 
                     elif isinstance(status, UserStatusOffline):
                         if was_online is not False:
@@ -95,28 +112,28 @@ async def track(username):
                                 online_str = ""
                             online_since = None
                         offline_duration = int(time.time() - offline_since) if offline_since else 0
-                        status_str = f"[{now}] @{username} [bold red]OFFLINE[/bold red] | Вне сети уже {format_duration(offline_duration)}.{online_str}"
+                        status_str = f"[{now}] {display_name} [bold red]OFFLINE[/bold red] | Вне сети уже {format_duration(offline_duration)}.{online_str}"
 
                     elif isinstance(status, UserStatusRecently):
                         was_online = False
                         online_since = None
                         offline_since = None
-                        status_str = f"[{now}] @{username} [yellow]OFFLINE (был недавно)[/yellow]"
+                        status_str = f"[{now}] {display_name} [yellow]OFFLINE (был недавно)[/yellow]"
 
                     elif isinstance(status, UserStatusLastWeek):
                         was_online = False
                         online_since = None
                         offline_since = None
-                        status_str = f"[{now}] @{username} [yellow]OFFLINE (был больше недели назад)[/yellow]"
+                        status_str = f"[{now}] {display_name} [yellow]OFFLINE (был больше недели назад)[/yellow]"
 
                     elif isinstance(status, UserStatusLastMonth):
                         was_online = False
                         online_since = None
                         offline_since = None
-                        status_str = f"[{now}] @{username} [yellow]OFFLINE (был больше месяца назад)[/yellow]"
+                        status_str = f"[{now}] {display_name} [yellow]OFFLINE (был больше месяца назад)[/yellow]"
 
                     else:
-                        status_str = f"[{now}] @{username} статус неизвестен или скрыт"
+                        status_str = f"[{now}] {display_name} статус неизвестен или скрыт"
 
                     live.update(Align.center(status_str))
 
@@ -128,7 +145,7 @@ async def track(username):
                             log(status_str)
 
                 except Exception as e:
-                    live.update(f"[bold red]\nОшибка:[/bold red] {e}")
+                    live.update(f"[bold red]Ошибка:[/bold red] {e}")
                     log(f"Ошибка: {e}")
                     break
 
@@ -140,10 +157,11 @@ async def track(username):
 
 if __name__ == "__main__":
     console.print(panel)
-    username = console.input("[bold cyan]Введите username Telegram (без @):[/bold cyan] ").strip()
-    if not username:
-        console.print("[bold red]Ошибка: username не введён[/bold red]")
+    user_input = console.input("[bold cyan]Введите username (без @) или ID Telegram:[/bold cyan] ").strip()
+    if not user_input:
+        console.print("[bold red]Ошибка: данные не введены[/bold red]")
         exit(1)
     client = TelegramClient("session", api_id, api_hash)
     with client:
-        client.loop.run_until_complete(track(username))
+        client.loop.run_until_complete(track(user_input))
+
